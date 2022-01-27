@@ -7,7 +7,7 @@ gene_expression = data.frame(gene = rep(paste0("Gene",seq(1,10)), c(rep(4,10))),
                              value = rnorm(40))
 
 head(gene_expression)
-a = ggplot(data = gene_expression,aes(x=gene,y=value))+
+a = ggplot(data = gene_expression,aes(x=sample,y=value))+
   geom_boxplot()
 print(a)
 ggsave("Figures/1_toyexample.png",plot = a)
@@ -34,7 +34,8 @@ coldata$sample = rownames(coldata)
 head(coldata)
 
 gene_expression = melt(cts, varnames=c('gene', 'sample')) %>% full_join(coldata,by="sample")
-a = ggplot(data = gene_expression,aes(x=gene,y=value))+
-  geom_boxplot()
 
+a = ggplot(data = gene_expression,aes(x=sample,y=value))+
+  geom_boxplot()
+print(a)
 ggsave("Figures/2_toyexample.png",plot = a)
