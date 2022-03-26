@@ -20,241 +20,350 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Introducción
 
-Paquetes necesarios:
+En este curso se va abordar los principales usos de dos de las librería de R más utilizados para manipular y formatear datos (dplyr) y realizar figuras (ggplot2) mediante ejemplos sencillos, aumentando la dificultad y las funciones que aprenderéis a utilizar. A continuación se mostrarán algunas de las figuras complejas que sabrás realizar cuando termines todo este curso.
+
+(Poner algunas figuras complejas: 1) volcano plot)
+
+Para llevar a cabo todo este curso necesitarás utilizar las siguientes librerías:
 
 ```{r, message=FALSE, warning=FALSE, error=FALSE}
 # TO-DO: Indicar brevemente para qué es cada paquete
-library(dplyr)
-library(ggplot2)
-library(DT)
+library(dplyr) ## Work with dataframes
+library(ggplot2) ## Making figures
+library(DT) ## Interface tables
 library(pasilla) #Bioconductor
-library(reshape2)
+library(reshape2) ## Transform data
 library(tidyr) ## pivot functions
-library(tibble)
+library(tibble) ## modern dataframes
+library(ggrepel) ## geom text without overlap
+```
+
+# Paquete `dplyr`
+
+En la mayoría de los casos, los datos que vamos a utilizar no suelen estar en el formato que nos interesa para utilizar ggplot2. Por ello se requieren de otras librerías que nos faciliten este trabajo de transformación de datos. La libreía más potente para esto es `dplyr`.
+
+## Funciones básicas de `dplyr`
+
+Esta librería tiene múltiples funcionalidades. Para hacer un análisis exploratorio de alguna de las más importantes, se usará una tabla con información clínica de muestras de sangre de lupus y donantes sanos.
+
+```{r}
+# Leemos el fichero
+datos_clinicos = read.delim("https://bioinformaticsgrx.es/wp-content/uploads/2020/02/Phenodata.txt")
+
+# Hacemos algún cambio rápido
+datos_clinicos[datos_clinicos$Neutrophil_percent == 0,"Neutrophil_percent"] <- NA
+datos_clinicos[datos_clinicos$Lymphocyte_percent == 0,"Lymphocyte_percent"] <- NA
+datatable(datos_clinicos)
+```
+
+### `select` -> Filtrar columnas
+
+```{r}
+## select: 
+# La fórmula %>% se utiliza para introducir el dataframe
+datatable(datos_clinicos %>% select(Patient,State,Gender)) 
+
+# También podemos poner la primera y última columna que queremos mantener
+# usando la fórmula from:to
+datatable(datos_clinicos %>% select(Patient:Race)) 
+
+ # Y podemos combinar ambas técnicas
+datatable(datos_clinicos %>% select(Patient:Gender,Treatment))
+
+# También podemos eliminar columnas
+datatable(datos_clinicos %>% select(-State))
+```
+
+### `filter` -> Filtrar filas en base a condiciones
+
+```{r}
+# Indicamos la condición que queremos
+datatable(datos_clinicos %>% filter(State == "Healthy")) 
+
+# Pudiendo añadir varias
+datatable(datos_clinicos %>% filter(State == "Healthy" & Gender == "F")) 
+
+# O complicando el filtrado como queramos
+datatable(datos_clinicos %>% filter((State == "SLE" & Gender == "F") & (Neutrophil_percent > 50 | Lymphocyte_percent > 30))) 
+
+# Igualmente podemos añadir otras funciones con %>%
+datatable(datos_clinicos %>% filter((State == "SLE" & Gender == "F") & (Neutrophil_percent > 50 | Lymphocyte_percent > 30)) %>% select(Patient)) 
+```
+
+### `mutate` -> Crear una nueva columna
+
+```{r}
+# Podemos generar una nueva columna llamada NLR que sea resultado de dividir
+# las variables Neutrophil_percent y Lymphocyte_percent
+datatable(datos_clinicos %>% mutate(NLR = Neutrophil_percent / Lymphocyte_percent))
+
+# Como para algunas muestras no tendremos datos de NLR, podemos fitrar las mismas
+# como se ha explicado previamente
+datatable(datos_clinicos %>% mutate(NLR = Neutrophil_percent / Lymphocyte_percent) %>% filter(!(is.na(NLR))))
+
+# Una función especial es add_rownames, que permite convertir los nombres de las filas en una columna más
+datatable(datos_clinicos %>% add_rownames("Samples"))
+```
+
+### `pull` -> Crear un vector desde un dataframe
+
+```{r}
+# Solo indicar la columna que se quiere convertir en vector
+datos_clinicos %>% pull(Patient)
+```
+
+### `group_by` -> Agrupar en base a una condición
+
+
+```{r}
+# Esta función por si sola no produce ningún cambio, sino que se utiliza para
+# indicar a funciones posteriores que todo lo que se haga se hará
+# separarando los diferentes grupos de la variable que se indique
+datatable(datos_clinicos %>% group_by(Gender))
+```
+
+### `summarize` -> Estadísiticas de los datos
+
+```{r}
+#Queremos saber la media de SLEDAI de las muestras
+datos_clinicos %>% summarize(Mean_SLEDAI = mean(SLEDAI,na.rm = T))
+
+# Como se ha indicado previamente, podemos agrupar los datos usando la función group_by
+datos_clinicos %>% group_by(Gender) %>% summarize(Mean_SLEDAI = mean(SLEDAI,na.rm = T))
+datos_clinicos %>% group_by(State) %>% summarize(Max_SLEDAI = max(SLEDAI,na.rm = T))
+datos_clinicos %>% group_by(Race) %>% summarize(SD_SLEDAI = sd(SLEDAI,na.rm = T))
+```
+
+### `arrange` -> Ordenar una columna
+
+```{r}
+# De menor a mayor
+datatable(datos_clinicos %>% arrange(SLEDAI))
+
+# De mayor a menor
+datatable(datos_clinicos %>% arrange(desc(SLEDAI)))
+
+# O estableciendo el orden manualmente
+datatable(datos_clinicos %>% arrange(factor(Gender, levels = c("M","F"))))
+```
+
+### `count` -> Contar el número de filas de cada factor de una columna
+
+```{r}
+# Podemos ver cuantas filas hay de cada State
+datos_clinicos %>% count(State)
+
+# Y agrupar por Gender
+datos_clinicos %>% group_by(Gender) %>% count(State)
+```
+
+### Pipes Complejos
+
+A continuación harmeos un pipe más complejo de los vistos hasta ahora, para ver el potencial que podemos sacarle a `dplyr`.
+
+```{r}
+datos_clinicos %>% 
+  # Creamos la columna NLR
+  mutate(NLR = Neutrophil_percent / Lymphocyte_percent) %>% 
+  # Filtramos para quedarnos solo con lupus y sin NA en NLR
+  filter(!(is.na(NLR)) & State == "SLE") %>% 
+  # Agrupamos por paciente. Cada paciente tiene una o varias visitas
+  group_by(Patient) %>% 
+  # Quedándonos con los pacientes con más de 3 visitas
+  filter(n() > 3) %>% 
+  # Y vemos cuantas visitas de cada paciente están por debajo o por encima de los valores normales de NLR
+  count(NLR < 0.78 | NLR > 3.53) 
 ```
 
 
-# Ejemplos de juguete
+## Combinar tablas con `dplyr`
 
-El formato ideal de tabla para representar datos de expresión génica con ggplot2 requiere una fila para cada valor de expresión:
+`dplyr` también nos da la posibilidad de combinar varias tablas de forma similar a como se hacen consultas en bases de datos. Para mostrar estas funciones seguiremos usando la base de datos clínicos de pacientes de lupus. La otra tabla que vamos a usar es una tabla de expresión de genes ficticia, con el fin de que no sea muy costoso computacionalmente
 
 ```{r}
-gene_expression = data.frame(gene = rep(paste0("Gene",seq(1,10)), c(rep(4,10))),
-                             sample = rep(paste0("Sample",seq(1,4)),10),
-                             group = rep(paste0("Group",seq(1,2)),20),
-                             value = rnorm(40))
+# Añadir los rownames como columna llamada Samples
+datos_clinicos <- datos_clinicos %>% add_rownames("Samples")
+
+#Quedarnos con las 6 primeras muestras de lupus con NLR válido
+muestras_lupus = datos_clinicos %>% 
+  mutate(NLR = Neutrophil_percent / Lymphocyte_percent) %>%
+  filter(!(is.na(NLR)) & State == "SLE") %>% 
+  select(Samples) %>%
+  head() %>%
+  pull()
+
+#Quedarnos con las 6 primeras muestras de sanos
+muestras_sano = datos_clinicos %>% 
+  filter(State == "Healthy") %>% 
+  select(Samples) %>%
+  head() %>%
+  pull()
+
+
+# Crear la tabla
+gene_expression = data.frame(Genes = rep(paste0("Gene",seq(1,10)), c(rep(12,10))),
+                             Samples = rep(c(muestras_lupus,muestras_sano),10),
+                             Values = rnorm(120))
 
 datatable(gene_expression)
 ```
 
-```{r, fig.align='center'}
-a = ggplot(data = gene_expression,aes(x=sample,y=value))+
-  geom_boxplot()
-print(a)
-ggsave("Figures/1_toyexample.png",plot = a)
-```
-
-
-# Paquete `dplyr`
-
-## Operaciones básicas
-
-```{r}
-##### Basic Operation #####
-
-data(starwars)
-datatable(starwars)
-```
-
-
-```{r}
-## select: subset column ##
-select(starwars,name,height,mass,species,homeworld)
-select(starwars,name:homeworld)
-```
-
-
-```{r}
-## filter: subset rows by condition ##
-filter(starwars,species=="Droid")
-filter(starwars,species=="Human",mass < 100)
-filter(starwars,species=="Human" | mass < 100)
-```
-
-
-```{r}
-## mutate: create a new column
-mutate(starwars,height_by_mass = height / mass)
-```
-
-
-```{r}
-## group_by: group data
-group_by(starwars,gender)
-```
-
-
-```{r}
-## summarize: create stats from group data
-summarize(group_by(starwars,gender),mean_mass = mean(mass,na.rm=T))
-summarize(group_by(starwars,gender),mean_height = mean(height,na.rm=T))
-```
-
-
-```{r}
-## arrange: sort columns
-arrange(starwars,mass)
-arrange(starwars,desc(mass))
-```
-
-
-```{r}
-## count: count discrete values
-count(starwars,sex)
-```
-
-
-```{r}
-## pipes: the usual way to use dplyr --> dataframe %>% operation1 %>% operation 2 .....
-starwars %>% select(name,height)
-starwars %>% group_by(gender) %>% summarise(mean_mas=mean(mass,na.rm=T))
-starwars %>% select(name:species) %>% filter(species != "Human") %>% group_by(sex) %>% summarize(max_height = max(height,na.rm=T))
-```
-
-
-## Combinando dataframes
-
-```{r}
-superheroes = data.frame(name = c("Magneto","Storm","Mystique","Batman","Joker","Catwoman","Hellboy"),
-                         alignment = c("bad","good","bad","good","bad","bad","good"),
-                         gender = c("male","female","female","male","male","female","male"),
-                         publisher = c("Marvel","Marvel","Marvel","DC","DC","DC","Dark Horse Comics"))
-
-publishers = data.frame(publisher = c("DC","Marvel","Image"),
-                        year_founded = c(1934,1939,1992))
-```
-
+Las funciones principales para combinar dataframes son: inner_join, left_join / right_join, full_join
 
 ```{r}
 ## Inner join: MATCH IN BOTH TABLES
-superheroes %>% inner_join(publishers,by="publisher")
-```
-
-
-```{r}
+datatable(gene_expression %>% inner_join(datos_clinicos,by="Samples"))
 ## Left join: prioritizes left table
-superheroes %>% left_join(publishers,by="publisher")
+datatable(gene_expression %>% left_join(datos_clinicos,by="Samples"))
+datatable(datos_clinicos %>% left_join(gene_expression,by="Samples"))
+
+datatable(gene_expression %>% right_join(datos_clinicos,by="Samples"))
+datatable(datos_clinicos %>% right_join(gene_expression,by="Samples"))
+
+datatable(gene_expression %>% full_join(datos_clinicos,by="Samples"))
 ```
 
+## Caso práctico
+
+A continuación vamos a preparar la tabla que vamos a usar para generar los gráficos en ggplot2. Para ello seguiremos usando los datos clínicos y las 12 muestras elegidas previamente, pero en este caso vamos a utilizar los datos reales de expresión de genes. Para evitar que nos lleve mucho tiempo, hemos preparado una matriz de expresión de 1000 genes
 
 ```{r}
-## Right join: prioritizes right table
-publishers %>% right_join(superheroes,by="publisher")
+# Descargar la matriz de expresión
+exp_data = read.delim("https://bioinformaticsgrx.es/wp-content/uploads/2022/03/expr.txt")
+dim(exp_data)
 
-## Full join: retains all rows
-superheroes %>% full_join(publishers,by="publisher")
+# Para pasar la matriz a un formato que nos sirva para ggplot2 usamos la librería reshape2
+# y dplyr
+gene_expression = as.data.frame(exp_data) %>% 
+  rownames_to_column(var = "Genes") %>%  
+  pivot_longer(cols = datos_clinicos$Samples,names_to = "Samples",values_to = "Values") %>%
+  filter(Samples %in% c(muestras_lupus,muestras_sano)) %>%
+  inner_join(datos_clinicos,by="Samples")
+datatable(gene_expression)
 ```
 
+# Paquete `ggplot2`
+
+
+```{r, fig.align='center'}
+# Generar un diagrama de cajas (boxplot)
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+ # Con la función ggplot indicamos el dataframe que queremos usar, así como las columnas que se quieren usar en los ejes x e y
+  geom_boxplot() # La función geom_boxplot se usa para generar el diagrama de cajas
+```
+
+```{r, fig.align='center'}
+# Si en vez de un diagrama de cajas quisiéramos generar un gráfico de tipo violín, solo cambiamos la función geom_boxplot por geom_violin
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+
+  geom_violin()
+```
+
+Como es lógico, estas figuras no quedan bien. Por ejemplo, los nombres de las muestras se sobrelapan, el color del fondo puede no gustarnos etc. Para modificar los aspectos estéticos de las figuras usaremos la función `theme`.
+
+## `theme` -> Modificar la apariencia
+
+En primer lugar vamos a comentar las diferentes temáticas que existen por defecto en ggplot2. Como se verá a continuación, cada temática cambia varios elementos del gráfico como el color de fondo o el color de los ejes
 
 ```{r}
-## Semi join: match in both tables but do not add the information from the second table
-superheroes %>% inner_join(publishers,by="publisher")
-superheroes %>% semi_join(publishers,by="publisher")
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+
+  geom_violin()+
+  theme_classic()
+
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+
+  geom_violin()+
+  theme_bw()
+
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+
+  geom_violin()+
+  theme_dark()
+
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+
+  geom_violin()+
+  theme_light()
+
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+
+  geom_violin()+
+  theme_minimal()
 ```
 
+Sin embargo en la mayoría de los casos querremos establecer nuestro propio diseño. Si miramos la ayuda de la función theme, veremos muchísimos parámetros que podemos modificar.
+
+Por ejemplo, si queremos cambiar el tamaño del texto lo podemos hacer de así
 
 ```{r}
-## anti_join: contrary of semi_join
-superheroes %>% anti_join(publishers,by="publisher")
+# Para modificar el texto debemos usar la función element_text
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+
+  geom_violin()+
+  theme(text = element_text(size = 20)) # Para cambiar todo el texto
+
+# Si solo queremos cambiar el texto del título de los ejes usamos el parametro axis.title
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+
+  geom_violin()+
+  theme(axis.title = element_text(size = 20,color = "red")) # También podemos añadir color
+
+# Y si lo que queremos es modificar los valores de los ejes, usamos la función axis.text
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+
+  geom_violin()+
+  # usamos axis.text.x para cambiar solo el eje x
+  theme(axis.text.x =  element_text(size = 20,color = "red"))
+
+# El propósito de ver todo esto era evitar que los nombres se mezclen.
+# Una buena solución es ponerlas en vertical, modificando el ángulo
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+
+  geom_violin()+
+  #vjust para alinear el nombre en el centro
+  theme(axis.text.x =  element_text(angle = 90,vjust = 0.5))
 ```
 
+Igualmente podemos modificar los ejes del gráfico para cambiar el color o quitarlos
 
 ```{r}
-superheroes %>% inner_join(publishers,by="publisher") %>% filter(alignment == "good")
+# Para modificar ambos usamos la función axis.line con la función element_line
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+
+  geom_violin()+
+  theme(axis.text.x =  element_text(angle = 90,vjust = 0.5),
+        axis.line = element_line(colour = "black"))
+
+# Si queremos modificar alguno específicamente, lo indicamos
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+
+  geom_violin()+
+  theme(axis.text.x =  element_text(angle = 90,vjust = 0.5),
+        axis.line.x = element_line(colour = "blue"))
 ```
 
-
-## Preparando datos para ggplot2
+Y finalmente podemos cambiar el fondo de la gráfica
 
 ```{r}
-gene_expression = data.frame(gene = rep(paste0("Gene",seq(1,10)), c(rep(4,10))),
-                             sample = rep(paste0("Sample",seq(1,4)),10),
-                             group = rep(paste0("Group",seq(1,2)),20),
-                             values = rnorm(40))
+# Para modificar el fondo, usamos el parámetro panel.background con la función element_rect
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+
+  geom_violin()+
+  theme(axis.text.x =  element_text(angle = 90,vjust = 0.5),
+        axis.line = element_line(colour = "black"),
+        panel.background = element_rect(fill = "blue"))
 
+# Si queremos controlar las rejillar usamos los parámetros panel.grid.major y panel.grid.minor
+# con la función element_line
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+
+  geom_violin()+
+  theme(axis.text.x =  element_text(angle = 90,vjust = 0.5),
+        axis.line = element_line(colour = "black"),
+        panel.background = element_rect(fill = "white"),
+        panel.grid.major = element_line(colour = "purple"),
+        panel.grid.minor = element_line(colour = "orange"))
 
-pasCts <- system.file("extdata",
-                      "pasilla_gene_counts.tsv",
-                      package="pasilla", mustWork=TRUE)
-pasAnno <- system.file("extdata",
-                       "pasilla_sample_annotation.csv",
-                       package="pasilla", mustWork=TRUE)
-cts <- as.matrix(read.csv(pasCts,sep="\t",row.names="gene_id"))
-datatable(cts)
+# Si no queremos que ningo de estos elementos aparezca
+# usamos la función element_blank
+
+ggplot(data = gene_expression,aes(x=Samples,y=Values))+
+  geom_violin()+
+  theme(axis.text.x =  element_text(angle = 90,vjust = 0.5),
+        axis.line = element_line(colour = "black"),
+        panel.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
 ```
 
+Por supuesto, con la cantidad de parámetros que se incluyen en la función `theme` hay muchas más cosas que se pueden modificar. Algunos de ellos los veremos en las siguientes secciones, principalmente aquellas relacionadas con la leyenda.
 
-```{r}
-coldata <- read.csv(pasAnno, row.names=1)
-coldata <- coldata[,c("condition","type")]
-rownames(coldata) = colnames(cts)
-datatable(coldata)
-```
-
-
-```{r}
-######## The logical way --> Loop ##########
-gene_expression = data.frame(matrix(NA,ncol = 3))[0,]
-colnames(gene_expression) = c("sample","gene","value")
-
-for (samplename in colnames(cts)){
-  gene_vals = cts[,samplename]
-  gene_expression = rbind(gene_expression,data.frame(sample = samplename,gene = rownames(cts),value = gene_vals))
-}
-
-coldata$sample = rownames(coldata)
-gene_expression = merge(gene_expression,coldata,by="sample")
-```
-
-
-```{r}
-######## Using Tibble and Dplyr or Reshape2 and Dplyr ##########
-gene_expression = as.data.frame(cts) %>% 
-  rownames_to_column(var = "gene") %>%  
-  pivot_longer(cols = rownames(coldata),names_to = "sample",values_to = "value") %>% 
-  full_join(coldata,by="sample")
-
-gene_expression = melt(cts, varnames=c('gene', 'sample')) %>% full_join(coldata,by="sample")
-```
-
-
-```{r}
-### Use this gene expression in toy_example 2
-
-######## gene_expression to cts
-
-cts = gene_expression[,c("gene","sample","value")] %>% pivot_wider(names_from = "sample", values_from = "value") %>%
-  column_to_rownames(var = "gene") %>% as.matrix()
-
-cts = dcast(gene_expression, gene ~ sample, value.var = "value") %>%
-  column_to_rownames(var = "gene") %>% as.matrix()
-
-
-```
-
-```{r}
-a = ggplot(data = gene_expression,aes(x=sample,y=value))+
-  geom_boxplot()
-print(a)
-ggsave("Figures/2_toyexample.png",plot = a)
-```
-
-
-```{r}
-
-```
-
-# Paquete `ggplot2` (TO-DO)
 
 # Session info
 
