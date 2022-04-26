@@ -20,14 +20,13 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Introducción
 
-En este curso se va abordar los principales usos de dos de las librería de R más utilizados para manipular y formatear datos (dplyr) y realizar figuras (ggplot2) mediante ejemplos sencillos, aumentando la dificultad y las funciones que aprenderéis a utilizar. A continuación se mostrarán algunas de las figuras complejas que sabrás realizar cuando termines todo este curso.
+En este curso se van a abordar los principales usos de dos de las librerías de R más utilizadas para manipular y formatear datos (dplyr) y realizar figuras (ggplot2) mediante ejemplos sencillos, aumentando la dificultad y las funciones que aprenderéis a utilizar. A continuación se mostrarán algunas de las figuras complejas que sabrás realizar cuando termines este curso.
 
 (Poner algunas figuras complejas: 1) volcano plot)
 
-Para llevar a cabo todo este curso necesitarás utilizar las siguientes librerías:
+Para llevar a cabo este curso necesitarás utilizar las siguientes librerías:
 
 ```{r, message=FALSE, warning=FALSE, error=FALSE}
-# TO-DO: Indicar brevemente para qué es cada paquete
 library(dplyr) ## Work with dataframes
 library(ggplot2) ## Making figures
 library(DT) ## Interface tables
@@ -36,13 +35,137 @@ library(reshape2) ## Transform data
 library(tidyr) ## pivot functions
 library(tibble) ## modern dataframes
 library(ggrepel) ## geom text without overlap
+library(ggpubr) ## Publication-ready ggplot themes
 ```
+
+
+# La sinergia `dplyr`-`ggplot2`
+
+`ggplot2` nos permite crear una gran diversidad de gráficos con una capacidad de personalización muy alta. 
+
+<p align="center">
+![](assets/ggplot_gallery.png){width=70%}
+</p>
+
+
+La creación de gráficos con `ggplot2` funciona por capas, siendo esenciales 3 de ellas:
+
+<p align="center">
+![](assets/ggplot_scheme.png){width=90%}
+</p>
+
+
+- **data**: un data frame que contiene los datos a representar, con todas las variables necesarias.
+- **aesthetics** o **aes**: en esta capa se determina qué columna del data frame contiene los valores `x` e `y` y aquellas variables que van a determinar aspectos como el color (`color`), relleno (`fill`) o la transparencia (`alpha`).
+- **geom**: las capas `geom_` determinan el tipo de gráfico. Entre ellos, los tipos más frecuentes en bioinformática son:
+  - Puntos (`geom_point()`, `geom_jitter()`)
+  - Líneas (`geom_line()`)
+  - Barras (`geom_bar()`)
+  - Boxplots (`geom_boxplot()`)
+  - Heatmaps (`geom_tile()`)
+  
+
+Opcionalmente, distinguimos 3 capas adicionales que ayudan a personalizar un gráfico:
+
+- **facet**: sirve para repetir el mismo gráfico para varias condiciones (*por ejemplo, para obtener un boxplot de expresión de sanos vs. enfermos por cada gen del dataset*)
+- **scale**: en estas capas se personalizan los ejes x e y (título, límites, número de marcas...) y también se determina la paleta de colores.
+- **theme**: personalizar la apariencia general del gráfico (tamaño y tipo de fuente, posición de la leyenda...)
+
+```{r, echo=FALSE}
+example_metadata <- read.delim("https://bioinformaticsgrx.es/wp-content/uploads/2020/02/Phenodata.txt") 
+example_data <- read.csv("example_data/example_data.csv")
+example_data_tidy <- read.csv("example_data/example_data_tidy.csv")
+
+# subset_expr <- example_metadata %>%
+#   select(Patient, State) %>% 
+#   distinct() %>% 
+#   group_by(State) %>%
+#   slice_sample(n=25) %>%
+#   pull(Patient)
+
+# example_data <- data.frame(Patient = subset_expr,
+#                            KRAS = runif(length(subset_expr)),
+#                            MLANA = runif(length(subset_expr)),
+#                            TP53 = runif(length(subset_expr)),
+#                            DMD = runif(length(subset_expr)))
+
+# write.csv(example_data, "example_data/example_data.csv", row.names = FALSE)
+
+# example_data_tidy <- example_metadata %>%
+#   select(c(Patient, State)) %>%
+#   distinct() %>%
+#   right_join(example_data %>%
+#                pivot_longer(-Patient, names_to = "Gene", values_to = "Expression"))
+# 
+# write.csv(example_data_tidy, "example_data/example_data_tidy.csv", row.names = FALSE)
+```
+
+
+Vamos a ver un ejemplo de gráfico sencillo donde se usan todas estas capas. En este gráfico, cada punto representa la expresión de un gen en un paciente:
+
+```{r, fig.width=4, fig.height=5, fig.align='center'}
+example_data_tidy %>% # Data
+  ggplot(aes(x = State, # Column containing x variable
+             y = Expression, # Column containing y variable
+             color = State)) + # Column color variable
+  
+  geom_boxplot() + # Plot boxplot
+  geom_jitter(width = 0.1, alpha = 0.5, size = 1) + # Plot dots over the boxplot
+  
+  facet_wrap(~Gene) + # One plot per gene
+  
+  scale_x_discrete(name = "Patient status") + # Change x axis title
+  scale_y_continuous(name = "Gene expression") + # Change y axis title
+  scale_color_brewer(palette = "Set1") + # Change color palette
+  
+  theme_pubr() + # Publication-ready theme
+  theme(axis.text = element_text(size = 10), # Change axis titles font size
+        legend.position = "none") # Hide color legend
+```
+
+Estamos representando 3 variables:
+
+- **Estado del paciente** (sano o enfermo): representado en el eje x y en el color.
+- **Expresión génica**: representado en el eje y.
+- **Gen**: se genera un panel por cada gen.
+
+Por ello, necesitamos un data frame con la siguiente estructura, donde las tres variables mencionadas anteriormente tienen una columna propia y cada fila es una observación:
+
+```{r}
+example_data_tidy %>% datatable()
+```
+
+Sin embargo, los datos de partida suelen tener una estructura más parecida a esta, donde los datos de expresión y la información de los pacientes vienen en tablas separadas (metadatos y datos):
+
+- **Metadatos**: tabla que contiene información de los pacientes. En este caso, nos interesa la columna `State`.
+
+```{r}
+example_metadata %>% datatable()
+```
+
+- **Datos**: tabla que contiene los datos de expresión génica, donde cada fila es un paciente y cada columna un gen.
+
+```{r}
+example_data %>% datatable()
+```
+
+
+Aquí entra en juego el preprocesamiento de datos con `dplyr` para transformar y combinar estas tablas:
+
+
+<p align="center">
+![](assets/combine_metadata_data.png){width=100%}
+</p>
+
+En este tutorial vamos a ver distintas funciones para transformar tablas de datos con `dplyr` y cómo podemos ponerlas en un formato adecuado para `ggplot2`, así como generar gráficos de alta calidad con este paquete.
 
 # Paquete `dplyr`
 
-En la mayoría de los casos, los datos que vamos a utilizar no suelen estar en el formato que nos interesa para utilizar ggplot2. Por ello se requieren de otras librerías que nos faciliten este trabajo de transformación de datos. La libreía más potente para esto es `dplyr`.
+En la mayoría de los casos, los datos que vamos a utilizar no suelen estar en el formato que nos interesa para utilizar ggplot2. Por ello se requieren de otras librerías que nos faciliten este trabajo de transformación de datos. La librería más potente para esto es `dplyr`.
 
 ## Funciones básicas de `dplyr`
+
+*(TO-DO: Explicar los pipes)*
 
 Esta librería tiene múltiples funcionalidades. Para hacer un análisis exploratorio de alguna de las más importantes, se usará una tabla con información clínica de muestras de sangre de lupus y donantes sanos.
 
@@ -57,6 +180,8 @@ datatable(datos_clinicos)
 ```
 
 ### `select` -> Filtrar columnas
+
+*(TO-DO: Cambiar nombres de columnas con `select`)*
 
 ```{r}
 ## select: 
@@ -175,8 +300,9 @@ datos_clinicos %>%
   count(NLR < 0.78 | NLR > 3.53) 
 ```
 
+## Pivotar tablas (TO-DO)
 
-## Combinar tablas con `dplyr`
+## Combinar tablas
 
 `dplyr` también nos da la posibilidad de combinar varias tablas de forma similar a como se hacen consultas en bases de datos. Para mostrar estas funciones seguiremos usando la base de datos clínicos de pacientes de lupus. La otra tabla que vamos a usar es una tabla de expresión de genes ficticia, con el fin de que no sea muy costoso computacionalmente
 
@@ -210,6 +336,8 @@ datatable(gene_expression)
 
 Las funciones principales para combinar dataframes son: inner_join, left_join / right_join, full_join
 
+![](assets/dplyr_joins.png)
+
 ```{r}
 ## Inner join: MATCH IN BOTH TABLES
 datatable(gene_expression %>% inner_join(datos_clinicos,by="Samples"))
@@ -222,6 +350,9 @@ datatable(datos_clinicos %>% right_join(gene_expression,by="Samples"))
 
 datatable(gene_expression %>% full_join(datos_clinicos,by="Samples"))
 ```
+
+
+*(TO-DO: Join por columnas con distinto nombre)*
 
 ## Caso práctico
 
@@ -260,6 +391,8 @@ ggplot(data = gene_expression,aes(x=Samples,y=Values))+
 Como es lógico, estas figuras no quedan bien. Por ejemplo, los nombres de las muestras se sobrelapan, el color del fondo puede no gustarnos etc. Para modificar los aspectos estéticos de las figuras usaremos la función `theme`.
 
 ## `theme` -> Modificar la apariencia
+
+*(TO-DO: Hablar de `ggpubr`)*
 
 En primer lugar vamos a comentar las diferentes temáticas que existen por defecto en ggplot2. Como se verá a continuación, cada temática cambia varios elementos del gráfico como el color de fondo o el color de los ejes
 
